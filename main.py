@@ -39,6 +39,7 @@ from sklearn.preprocessing import StandardScaler
 #from pyod.models.lscp import LSCP
 
 import scipy.signal
+from scipy import interpolate
 
 import os, sys, datetime, fnmatch
 
@@ -86,30 +87,46 @@ def plot_embe(gdat, lcurflat, X_embedded, strg, titl):
     plt.close()
     
             
-def plot_imag(gdat, cntp, path, cbar='Greys_r', strgtitl='', boolresi=False, xposoffs=None, yposoffs=None, indxpixlcolr=None):
+def plot_anim(gdat, cntp, strgvarb, cmap='Greys_r', strgtitlbase='', boolresi=False, indxsideyposoffs=0, indxsidexposoffs=0):
+    
+    vmin = np.amin(cntp)
+    vmax = np.amax(cntp)
+    if boolresi:
+        vmax = max(abs(vmax), abs(vmin))
+        vmin = -vmax
+    
+    for t in gdat.indxtime:
+        strgtitl = strgtitlbase + ', JD = %d' % gdat.time[t]
+        path = gdat.pathdata + '%s_%s_%05d.pdf' % (strgvarb, gdat.strgcntp, t)
+        plot_imag(gdat, cntp[:, :, t], path=path, strgvarb=strgvarb, cmap=cmap, strgtitl=strgtitl, \
+                                        indxsideyposoffs=indxsideyposoffs, indxsidexposoffs=indxsidexposoffs, boolresi=boolresi, vmin=vmin, vmax=vmax)
+    os.system('convert %s%s_%s_*.pdf %s%s_%s.gif' % (gdat.pathdata, strgvarb, gdat.strgcntp, gdat.pathdata, strgvarb, gdat.strgcntp))
+    ### delete the frame plots
+    path = gdat.pathdata + '%s_%s_*.pdf' % (strgvarb, gdat.strgcntp)
+    os.system('rm %s' % path)
+
+
+def plot_imag(gdat, cntp, strgvarb, path=None, cmap=None, indxsideyposoffs=0, indxsidexposoffs=0, \
+                    strgtitl='', boolresi=False, xposoffs=None, yposoffs=None, indxpixlcolr=None, vmin=None, vmax=None):
     
     if gdat.cntpscaltype == 'asnh':
         cntp = np.arcsinh(cntp)
-   
-    if boolresi:
-        vmin = gdat.vmincntpresi
-        vmax = gdat.vmaxcntpresi
-        cbar = 'PuOr'
-    else:
-        vmin = gdat.vmincntpdata
-        vmax = gdat.vmaxcntpdata
     
-    if vmin <= 0. and not boolresi:
-        print 'Warning! Minimum of the image went negative!'
+    if cmap == None:
+        if boolresi:
+            cmap = 'RdBu'
+        else:
+            cmap = 'Greys_r'
     
-    figr, axis = plt.subplots(figsize=(12, 12))
-    imag = axis.imshow(cntp, origin='lower', interpolation='nearest', cmap=cbar, vmin=vmin, vmax=vmax)
+    if vmin is None or vmax is None:
+        vmax = np.amax(cntp)
+        vmin = np.amin(cntp)
+        if boolresi:
+            vmax = max(abs(vmax), abs(vmin))
+        vmin = -vmax
     
-    axis.scatter(gdat.catlrefr[0]['xpos'], gdat.catlrefr[0]['ypos'], alpha=1., s=30, color='b')
-    axis.scatter(gdat.catlrefr[0]['xpos'][0], gdat.catlrefr[0]['ypos'][0], alpha=1., color='g', s=30)
-    #axis.scatter(gdat.catlrefr[0]['xpos'][1:gdat.numbrefrfitt], gdat.catlrefr[0]['ypos'][1:gdat.numbrefrfitt], alpha=1., color='y', s=30)
-    if xposoffs is not None:
-        axis.scatter(gdat.catlrefr[0]['xpos'] + xposoffs, gdat.catlrefr[0]['ypos'] + yposoffs, alpha=1., s=20, color='r')
+    figr, axis = plt.subplots(figsize=(8, 6))
+    objtimag = axis.imshow(cntp, origin='lower', interpolation='nearest', cmap=cmap, vmin=vmin, vmax=vmax)
     
     if indxpixlcolr is not None:
         temp = np.zeros_like(cntp).flatten()
@@ -120,29 +137,31 @@ def plot_imag(gdat, cntp, path, cbar='Greys_r', strgtitl='', boolresi=False, xpo
         alph = alph.reshape((gdat.numbside, gdat.numbside))
         alph = np.copy(temp)
         axis.imshow(temp, origin='lower', interpolation='nearest', alpha=0.5)
-    axis.set_position([0.1, 0.1, 0.7, 0.7])
-    axiscbar = figr.add_axes([0.9, 0.1, 0.05, 0.73]) 
-    cbar = figr.colorbar(imag, cax=axiscbar) 
-    if gdat.cntpscaltype == 'asnh':
-        tick = cbar.get_ticks()
-        tick = np.sinh(tick)
-        labl = ['%d' % tick[k] for k in range(len(tick))]
-        cbar.set_ticklabels(labl)
     
-    #plt.tight_layout()
+    # overplot catalog
+    plot_catl(gdat, axis, indxsideyposoffs=indxsideyposoffs, indxsidexposoffs=indxsidexposoffs)
     
+    # make color bar
+    #axis.set_position([0.1, 0.1, 0.7, 0.7])
+    #axiscbar = figr.add_axes([0.9, 0.1, 0.05, 0.73]) 
+    #cbar = 
+    cax = figr.add_axes([0.83, 0.1, 0.03, 0.8])
+    figr.colorbar(objtimag, cax=cax)#, orientation='horizontal')
+    #plt.colorbar(objtimag, axis) 
+    #if gdat.cntpscaltype == 'asnh':
+    #    tick = cbar.get_ticks()
+    #    tick = np.sinh(tick)
+    #    labl = ['%d' % tick[k] for k in range(len(tick))]
+    #    cbar.set_ticklabels(labl)
+    #plt.colorbar(objtimag)
+
+    if path is None:
+        path = gdat.pathdata + '%s_%s.pdf' % (strgvarb, gdat.strgcntp)
     print 'Writing to %s...' % path
-    plt.tight_layout()
+    #plt.tight_layout()
     plt.savefig(path)
     plt.close()
     
-
-def retr_magt(gdat, cntp):
-    
-    magt = -2.5 * np.log10(cntp / 1.5e4 / gdat.listcade) + 10
-    
-    return magt
-
 
 def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg=None, datatype='obsd'):
     
@@ -186,25 +205,26 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
         numbsour = 1000
         numbsupn = 10
     
+    gdat.numbtimerebn = 30
+    
     if pathfile is None:
         # get list of paths where FFIs live
         listrtag = fnmatch.filter(os.listdir(gdat.pathdataorig), 'tess*-s%04d-%d-%d-*-s_ffic.fits' % (isec, icam, iccd))
-        
+        listrtag.sort()
         #listrtag = listrtag#[:20]
 
         if len(listrtag) == 0:
             raise Exception('Could not find any files.')
-        numbtime = len(listrtag)
-    
+        if gdat.datatype == 'mock':
+            gdat.numbtime = gdat.numbtimerebn
+        else:
+            gdat.numbtime = len(listrtag)
     else:
         listhdunrefr = fits.open(pathfile)
         time = listhdunrefr[1].data['TIME']
-        numbtime = time.size
-        imagmemo = np.swapaxes(np.swapaxes(listhdunrefr[1].data['FLUX'], 0, 1), 1, 2)
+        gdat.numbtime = time.size
+        cntpmemo = np.swapaxes(np.swapaxes(listhdunrefr[1].data['FLUX'], 0, 1), 1, 2)
         listobjtwcss = WCS(listhdunrefr[1].header)
-    
-    print 'numbtime'
-    print numbtime
     
     # settings
     ## parameters
@@ -213,7 +233,7 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
     numbstrd = 1
     
     ## plotting
-    boolplotsinc = True
+    gdat.cntpscaltype = True         
     
     gdat.offscorr = numbsidecorr / 2
 
@@ -230,8 +250,8 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
         numbpixloffsxpos = 44
         print 'Cutout input data are not provided. Will work on the FFIs.'
     else:
-        numbsideyposfull = imagmemo.shape[0]
-        numbsidexposfull = imagmemo.shape[1]
+        numbsideyposfull = cntpmemo.shape[0]
+        numbsidexposfull = cntpmemo.shape[1]
         numbpixloffsypos = 0
         numbpixloffsxpos = 0
         print 'Cutout input data are provided.'
@@ -248,7 +268,7 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
     print numbside
     
     numbsideback = 2 * gdat.numbneigback + 1
-    indxtime = np.arange(numbtime)
+    gdat.indxtime = np.arange(gdat.numbtime)
     indxmemo = np.arange(numbmemo)
     
     gdat.numbsideedge = gdat.numbneigback + gdat.offscorr
@@ -290,8 +310,8 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
     indxsidexposdatatemp = np.empty((numbsidesrch, numbsidesrch, numbsidecorr, numbsidecorr))
     indxsideyposdatatemp[:, :, :, :] = indxsideyposdata[:, :, None, None]
     indxsidexposdatatemp[:, :, :, :] = indxsidexposdata[:, :, None, None]
-    gdat.indxsideyposdataflat = indxsideyposdatatemp.flatten()
-    gdat.indxsidexposdataflat = indxsidexposdatatemp.flatten()
+    gdat.indxsideyposdataflat = indxsideyposdatatemp.flatten().astype(int)
+    gdat.indxsidexposdataflat = indxsidexposdatatemp.flatten().astype(int)
     numbpixlmemo = numbsidememo**2
             
     if gdat.datatype == 'mock':
@@ -315,10 +335,10 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
     arry = np.linspace(minmproj, maxmproj, 100)
     xx, yy = np.meshgrid(arry, arry)
     
-    magtminm = 15.
-    magtmaxm = 23.
-    print 'numbtime'
-    print numbtime
+    magtminm = 12.
+    magtmaxm = 19.
+    print 'gdat.numbtime'
+    print gdat.numbtime
     print 'numbsideback'
     print numbsideback
     print 'numbsideaper'
@@ -338,12 +358,21 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
     dictpara['mean'] = np.zeros((numbsidememo, numbsidememo)) - 1.
     dictpara['diff'] = np.zeros((numbsidememo, numbsidememo)) - 1.
     
+    print 'Reading the quaternion...'
+    #path = gdat.pathdataorig + 'quat.fiits'
+    #listhduncatl = fits.open(path)
+    #print 'listhdunrefr[0].header'
+    #print listhdunrefr[0].header
+    quat = np.empty((2, gdat.numbtime))
+    quat[:, :] = np.linspace(0., 0.1, gdat.numbtime)[None, :]
+    #listhdunrefr.close()
+    
     # i indexes the y-axis
     for i in indxmemo: 
         # j indexes the y-axis
         for j in indxmemo: 
     
-            if (i != 0 or j != 0) and gdat.datatype == 'mock':
+            if (i != 0 or j != 0):# and gdat.datatype == 'mock':
                 continue
 
             print 'Memory region i=%d, j=%d' % (i, j)
@@ -385,17 +414,20 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
             
             #if rasctarg is not None:
             #    posipixl = listobjtwcss[0].all_world2pix(np.array([[rasctarg, decltarg]]), 1)
+            timeexpo = 1426.
             
             if pathfile is None:
                 
                 pathsavedata = gdat.pathdata + '%s_data.npz' % gdat.strgcntp
-                if not os.path.exists(pathsavedata):
-
+                if gdat.datatype == 'mock' or not os.path.exists(pathsavedata):
+                    
                     listobjtwcss = []
-                    gdat.time = []
                     if gdat.datatype == 'obsd':
-                        imagmemo = []
+                        gdat.time = []
+                        cntpmemo = []
                     for t in range(len(listrtag)):
+                        if t == 0 and gdat.datatype == 'mock':
+                            continue
                         if t % 100 == 0 and gdat.datatype == 'obsd':
                             print 'Loading the image into memory, t = %d' % t
                         path = gdat.pathdataorig + listrtag[t]
@@ -403,39 +435,49 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
                         
                         objtheadseco = listhdunrefr[1].header
                         listobjtwcss.append(WCS(objtheadseco))
-                        
-                        objtheadfrst = listhdunrefr[0].header
-                        timetemp = (objtheadfrst['TSTOP'] + objtheadfrst['TSTART']) / 2
-                        gdat.time.append(timetemp)
-                        
                         if gdat.datatype == 'obsd':
-                            hdundata = listhdunrefr[1].data
-                            imagmemo.append(hdundata[indxsideyposdatainit:indxsideyposdatafinl, indxsidexposdatainit:indxsidexposdatafinl])
+                            objtheadfrst = listhdunrefr[0].header
+                            #print 'objtheadfrst'
+                            #print objtheadfrst
+                            timetemp = (objtheadfrst['TSTOP'] + objtheadfrst['TSTART']) / 2
+                            gdat.time.append(timetemp)
+                        
+                            hdundata = listhdunrefr[1].data.astype(float) * timeexpo
+                            cntpmemo.append(hdundata[indxsideyposdatainit:indxsideyposdatafinl, indxsidexposdatainit:indxsidexposdatafinl])
                         
                         listhdunrefr.close()
                     
                     if gdat.datatype == 'obsd':
-                        imagmemo = np.stack(imagmemo, axis=-1)
-            
-                    objtfile = open(pathsavedata, 'wb')
-                    pickle.dump([listobjtwcss, gdat.time, imagmemo], objtfile)
-                else:
-                    objtfile = open(pathsavedata, "rb" )
-                    listobjtwcss, gdat.time, imagmemo = pickle.load(objtfile)
+                        gdat.time = np.array(gdat.time)
+                        cntpmemo = np.stack(cntpmemo, axis=-1)
+                        listtemp = [listobjtwcss, gdat.time, cntpmemo]
 
+                        objtfile = open(pathsavedata, 'wb')
+                        
+                        print 'Writing to %s...' % pathsavedata
+                        pickle.dump(listtemp, objtfile)
+                else:
+                    print 'Reading from %s...' % pathsavedata
+                    objtfile = open(pathsavedata, "rb" )
+                    listtemp = pickle.load(objtfile)
+                    if gdat.datatype == 'obsd':
+                        listobjtwcss, gdat.time, cntpmemo = listtemp
+                    else:
+                        listobjtwcss, gdat.time = listtemp
+                   
             if gdat.datatype == 'mock':
-                timeexpo = 1440.
                 # Data generation
                 ## image
-                arrytime = np.empty((2, numbtime))
-                arrytime[:, :] = np.linspace(-0.5, 0.5, numbtime)[None, :]
+                gdat.time = np.concatenate((np.linspace(1., 12.7, gdat.numbtime / 2), np.linspace(1., 12.7, gdat.numbtime / 2)))
+                arrytime = np.empty((2, gdat.numbtime))
+                arrytime[:, :] = np.linspace(-0.5, 0.5, gdat.numbtime)[None, :]
                 indxsour = np.arange(numbsour)
-                indxtime = np.arange(numbtime)
-                posiquat = 5e-2 * np.random.randn(2 * numbtime).reshape((2, numbtime)) + arrytime * 0.1
+                gdat.indxtime = np.arange(gdat.numbtime)
+                posiquat = 5e-2 * np.random.randn(2 * gdat.numbtime).reshape((2, gdat.numbtime)) + arrytime * 0.1
                 gdat.trueypos = numbsidememo * np.random.random(numbsour)[None, :] + posiquat[0, :, None]
                 gdat.truexpos = numbsidememo * np.random.random(numbsour)[None, :] + posiquat[1, :, None]
                 
-                imagmemo = np.ones((numbsidememo, numbsidememo, numbtime)) * 60.
+                cntpmemo = np.ones((numbsidememo, numbsidememo, gdat.numbtime)) * 60.
                 
                 indxsideyposmemocent = (j + 1.5) * numbsideshft + numbpixloffsypos + gdat.numbsideedge
                 indxsidexposmemocent = (i + 1.5) * numbsideshft + numbpixloffsxpos + gdat.numbsideedge
@@ -451,40 +493,35 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
 
                 # inject signal
                 indxsupn = np.arange(numbsupn)
-                truecntpsour = np.empty((numbtime, numbsour))
-                truemagt = np.empty((numbtime, numbsour))
+                truecntpsour = np.empty((gdat.numbtime, numbsour))
+                truemagt = np.empty((gdat.numbtime, numbsour))
                 gdat.indxsoursupn = np.random.choice(indxsour, size=numbsupn, replace=False)
                 for n in indxsour:
+                    print 'n'
+                    print n
                     if n in gdat.indxsoursupn:
                         timenorm = -0.5 + (gdat.time / np.amax(gdat.time)) + 2. * (np.random.random(1) - 0.5)
-                        print 'n'
-                        print n
-                        print 'timenorm'
-                        summgene(timenorm)
-
                         objtrand = scipy.stats.skewnorm(10.).pdf(timenorm)
                         objtrand /= np.amax(objtrand)
                         truemagt[:, n] = 10. + 6. * (2. - objtrand)
-                        
-                        print 'truemagt[:, n]'
-                        print truemagt[:, n]
-                        summgene(truemagt[:, n])
-                        print 
                     else:
                         truemagt[:, n] = np.random.rand() * 5 + 15.
-                    
+                    print 'truemagt[:, n]'
+                    summgene(truemagt[:, n])
                     truecntpsour[:, n] = 10**((20.424 - truemagt[:, n]) / 2.5)
-
+                    print 'truecntpsour[:, n]'
+                    summgene(truecntpsour[:, n])
+                    print
                 indxsideypossour = np.round(np.mean(gdat.trueypos, 0)).astype(int)
                 indxsidexpossour = np.round(np.mean(gdat.truexpos, 0)).astype(int)
                 
                 sigmpsfn = 1.
 
                 for k in indxsour:
-                    for t in indxtime:
-                        imagmemo[:, :, t] += 1. / np.sqrt(sigmpsfn**2 * (2. * np.pi)**2) * \
-                         truecntpsour[t, k] * np.exp(-0.5 * ((indxsidexposmemo - gdat.truexpos[t, k])**2 + \
-                                                                    (indxsideyposmemo - gdat.trueypos[t, k])**2) / sigmpsfn**2)
+                    temp = 1. / np.sqrt(sigmpsfn**2 * (2. * np.pi)**2) * \
+                        truecntpsour[None, None, :, k] * np.exp(-0.5 * ((indxsidexposmemo[:, :, None] - gdat.truexpos[None, None, :, k])**2 + \
+                                                                (indxsideyposmemo[:, :, None] - gdat.trueypos[None, None, :, k])**2) / sigmpsfn**2)
+                    cntpmemo[:, :, :] += temp
                 
                 indxsideypossour[np.where(indxsideypossour == numbsidememo)] = numbsidememo - 1
                 indxsidexpossour[np.where(indxsidexpossour == numbsidememo)] = numbsidememo - 1
@@ -506,87 +543,141 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
                 
                 indxdataback = np.setdiff1d(indxdata, indxdatasour)
                 listlabltrue[indxdatasour[indxsourinsd]] = 1
-                imagmemo *= timeexpo
-                imagmemo = np.random.poisson(imagmemo).astype(float)
+                cntpmemo *= timeexpo
+                cntpmemo = np.random.poisson(cntpmemo).astype(float)
+            
+            print 'Shifting the images...'
+            x = np.linspace(0.5, numbsidememo - 0.5, numbsidememo)
+            y = np.linspace(0.5, numbsidememo - 0.5, numbsidememo)
+            print 'cntpmemo'
+            summgene(cntpmemo)
+            print 'x'
+            summgene(x)
+            f = interpolate.interp2d(x, y, cntpmemo[:, :, 0], kind='cubic')
+            print 'cntpmemo[:, :, 0]'
+            summgene(cntpmemo[:, :, 0])
+            for t in gdat.indxtime:
+                cntpmemo[:, :, t] = f(x + quat[0, t], y + quat[1, t])
+                print 't'
+                print t
+                print 'quat[:, t]'
+                print quat[:, t]
+                print 'cntpmemo[:, :, t]'
+                summgene(cntpmemo[:, :, t])
+            cntpmemospatmedi = np.median(cntpmemo, (0, 1))
+                
+            cntpcutt = 100 * timeexpo
+
+            # plot the spatial median
+            figr, axis = plt.subplots()
+            temp = np.arcsinh(cntpmemospatmedi)
+            axis.plot(gdat.time, temp, color='black', ls='', marker='o', markersize=3)
+            tick = np.linspace(np.amin(temp), np.amax(temp), 10)
+            axis.set_yticks(tick)
+            axis.set_yticklabels(['%.3g' % np.sinh(tick[k]) for k in range(10)])
+            axis.axhline(cntpcutt, ls='', alpha=0.5)
+            axis.set_xlabel('Time [BJD]')
+            axis.set_ylabel('Flux [e$^{-}$/s]')
+            path = gdat.pathdata + 'cntpmemospatmedi_%s.pdf' % (gdat.strgcntp)
+            plt.savefig(path)
+            plt.close()
+            
+            # mask the data
+            print 'Masking out the data...'
+            gdat.indxtimeorbt = np.argmax(np.diff(gdat.time))
+            gdat.indxtimegood = np.where((gdat.time > np.amin(gdat.time) + 2.) & (gdat.time < np.amax(gdat.time) - 0.) & (cntpmemospatmedi < cntpcutt) & \
+                                    ((gdat.time < gdat.time[gdat.indxtimeorbt] - 0.) | (gdat.time > gdat.time[gdat.indxtimeorbt+1] + 2.)))[0]
+            print 'Number of pixels that pass the mask: %d' % gdat.indxtimegood.size
+            listobjtwcss = np.array(listobjtwcss)[gdat.indxtimegood]
+            gdat.time = gdat.time[gdat.indxtimegood]
+            cntpmemo = cntpmemo[:, :, gdat.indxtimegood]
+            gdat.numbtime = gdat.time.size
+            gdat.indxtime = np.arange(gdat.numbtime)
+            cntpmemospatmedi = cntpmemospatmedi[gdat.indxtimegood]
+                
+            # plots
+            ## random pixel light curves
+            figr, axis = plt.subplots(10, 4)
+            indxsideyposrand = np.random.choice(indxsidememo, size=40)
+            indxsidexposrand = np.random.choice(indxsidememo, size=40)
+            for a in range(10):
+                for b in range(4):
+                    p = a * 4 + b
+                    if p >= numbdata:
+                        continue
+                    axis[a][b].plot(gdat.time, cntpmemo[indxsideyposrand[p], indxsidexposrand[p], :], color='black', ls='', marker='o', markersize=3)
+                    if a != 9:
+                        axis[a][b].set_xticks([])
+                    if b != 0:
+                        axis[a][b].set_yticks([])
+            path = gdat.pathdata + 'lcurrand_%s.pdf' % (gdat.strgcntp)
+            plt.savefig(path)
+            plt.close()
 
             # spatial median
             print 'Performing the spatial median filter...'
-            #imagmemo = imagmemo - scipy.signal.medfilt(imagmemo, (11, 11, 1))
+            #cntpmemo = cntpmemo - scipy.signal.medfilt(cntpmemo, (11, 11, 1))
 
             # temporal median filter
-            numbtimefilt = min(9, numbtime)
+            numbtimefilt = min(9, gdat.numbtime)
+            if numbtimefilt % 2 == 0:
+                numbtimefilt -= 1
             print 'Performing the temporal median filter...'
-            imagmemo = scipy.signal.medfilt(imagmemo, (1, 1, numbtimefilt))
+            cntpmemo = scipy.signal.medfilt(cntpmemo, (1, 1, numbtimefilt))
             
-            if imagmemo.shape[0] != numbsidememo or imagmemo.shape[1] != numbsidememo:
-                print 'imagmemo'
-                summgene(imagmemo)
+            if cntpmemo.shape[0] != numbsidememo or cntpmemo.shape[1] != numbsidememo:
+                print 'cntpmemo'
+                summgene(cntpmemo)
                 print 'numbsidememo'
                 print numbsidememo
                 raise Exception('')
 
             # rebin in time
-            if numbtime > 30:
+            if gdat.numbtime > gdat.numbtimerebn:
                 print 'Rebinning in time...'
-                numbtimeoldd = numbtime
-                numbtime = 30
-                numbtimebins = numbtimeoldd / numbtime
-                imagmemoneww = np.zeros((numbsidememo, numbsidememo, numbtime)) - 1.
-                timeneww = np.zeros(numbtime)
-                for t in range(numbtime):
-                    if t == numbtime - 1:
-                        imagmemoneww[:, :, t] = np.mean(imagmemo[:, :, (numbtime-1)*numbtimebins:], axis=2)
-                        timeneww[t] = np.mean(time[(numbtime-1)*numbtimebins:])
+                numbtimeoldd = gdat.numbtime
+                gdat.numbtime = gdat.numbtimerebn
+                numbtimebins = numbtimeoldd / gdat.numbtime
+                cntpmemoneww = np.zeros((numbsidememo, numbsidememo, gdat.numbtime)) - 1.
+                timeneww = np.zeros(gdat.numbtime)
+                for t in range(gdat.numbtime):
+                    if t == gdat.numbtime - 1:
+                        cntpmemoneww[:, :, t] = np.mean(cntpmemo[:, :, (gdat.numbtime-1)*numbtimebins:], axis=2)
+                        timeneww[t] = np.mean(gdat.time[(gdat.numbtime-1)*numbtimebins:])
                     else:
-                        imagmemoneww[:, :, t] = np.mean(imagmemo[:, :, t*numbtimebins:(t+1)*numbtimebins], axis=2)
-                        timeneww[t] = np.mean(time[t*numbtimebins:(t+1)*numbtimebins])
-                imagmemo = imagmemoneww
-                gdat.time = timeneww
-                indxtime = np.arange(numbtime)
-                
-            minmtime = np.amin(gdat.time)
-            if not np.isfinite(imagmemo).all():
-                raise Excepion('')
+                        cntpmemoneww[:, :, t] = np.mean(cntpmemo[:, :, t*numbtimebins:(t+1)*numbtimebins], axis=2)
+                        timeneww[t] = np.mean(gdat.time[t*numbtimebins:(t+1)*numbtimebins])
+                gdat.indxtimegood = np.isfinite(timeneww)
+                cntpmemo = cntpmemoneww[:, :, gdat.indxtimegood]
+                gdat.time = timeneww[gdat.indxtimegood]
+                gdat.numbtime = gdat.indxtimegood.size
+                gdat.indxtime = np.arange(gdat.numbtime)
+            
+            # check cntpmemo
+            if not np.isfinite(cntpmemo).all():
+                raise Exception('')
 
+            # calculate derived maps
             ## RMS image
-            figr, axis = plt.subplots(figsize=(12, 6))
-            imagmemomedi = np.median(imagmemo, 2)
-            cntptemp = np.std(imagmemo - imagmemomedi[:, :, None], 2) / imagmemomedi
-            if boolplotsinc:
-                cntptemp = np.arcsinh(cntptemp)
-            objtimag = axis.imshow(cntptemp, interpolation='nearest', cmap='Reds')
-            plt.colorbar(objtimag)
-            plt.tight_layout()
-            path = gdat.pathdata + 'cntpstdv_%s.pdf' % gdat.strgcntp
-            print 'Writing to %s...' % path
-            plt.savefig(path)
-            plt.close()
+            cntpmemotimemedi = np.median(cntpmemo, 2)
+            cntptemp = np.std(cntpmemo - cntpmemotimemedi[:, :, None], 2) / cntpmemotimemedi
+            plot_imag(gdat, cntptemp, 'cntpstdv', cmap='Reds', strgtitl='RMS')
 
             strgtype = 'tsne'
 
             if i == 0 and j == 0:
-                lcurarry = np.empty((numbsidesrch, numbsidesrch, numbtime, numbsidecorr, numbsidecorr)) 
+                lcurarry = np.empty((numbsidesrch, numbsidesrch, gdat.numbtime, numbsidecorr, numbsidecorr)) 
                 medilcur = np.empty((numbsidesrch, numbsidesrch)) 
            
-            if not np.isfinite(imagmemo).all():
-                raise Exception('')
-
             # normalize by the temporal median
-            imagmemo /= np.mean(imagmemo, 2)[:, :, None]
-            #imagmemo /= np.std(imagmemo, 2)[:, :, None]
 
-            if not np.isfinite(imagmemo).all():
-                print 'np.where(imagmemomedi == 0)[0].size'
-                print np.where(imagmemomedi == 0)[0].size
-                print 'imagmemomedi'
-                summgene(imagmemomedi)
-                raise Exception('')
-
-            lcuravgd = np.empty(numbtime)
+            lcuravgd = np.empty(gdat.numbtime)
             cntr = 0
             prevfrac = -1
             k = 0
-                        
+            
+            # machine learning
+            ## get neighboring pixels as additional features
             for a in np.arange(numbsidecorr):
                 for b in np.arange(numbsidecorr):
                     if numbsidecorr == 3:
@@ -594,154 +685,113 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
                     else:
                         offs = 0
                     indx = gdat.numbneigback + gdat.offscorr + a + offs
-                    lcurarry[:, :, :, a, b] = imagmemo[indx:indx+numbsidesrch, indx:indx+numbsidesrch, :]
+                    lcurarry[:, :, :, a, b] = cntpmemo[indx:indx+numbsidesrch, indx:indx+numbsidesrch, :]
+            lcurflat = lcurarry.reshape((numbsidesrch**2, gdat.numbtime, numbsidecorr, numbsidecorr))
+            lcurflat = lcurflat.reshape((numbsidesrch**2, gdat.numbtime * numbsidecorr**2))
 
             if False:
-                # k indexes the y-axis
-                while k < numbsidememo:
-                    l = 0
-                    # l indexes the y-axis
-                    while l < numbsidememo:
-                        frac = 5 * int(20. * float(cntr) / numbpixlmemo)
-                        if prevfrac != frac:
-                            print '%d%% completed' % frac
-                            prevfrac = frac
-                        if verbtype > 1:
-                            print 'k l'
-                            print k, l
-                            print 'cntr'
-                            print cntr
                         
-                        if k * numbstrd - gdat.numbsideedge < 0:
-                            l += 1
-                            cntr += 1
-                            continue
-                        if l * numbstrd - gdat.numbsideedge < 0:
-                            l += 1
-                            cntr += 1
-                            continue
-                        if gdat.numbneigback + gdat.offscorr + l * numbstrd >= numbsidememo:
-                            l += 1
-                            cntr += 1
-                            continue
-                        if gdat.numbneigback + gdat.offscorr + k * numbstrd >= numbsidememo:
-                            l += 1
-                            cntr += 1
-                            continue
-                        
-                        indxsideypostemp = k * numbstrd
-                        indxsidexpostemp = l * numbstrd
-                        if not np.isfinite(imagmemo).all():
-                            raise Exception('')
+                indxsideypostemp = k * numbstrd
+                indxsidexpostemp = l * numbstrd
+                if not np.isfinite(cntpmemo).all():
+                    raise Exception('')
 
-                        if strgtype == 'tsne' or strgtype == 'tmpt':
-                            pass
-                        else:
-                            indxsideyposaperinit = indxsideypostemp - numbneigaper
-                            indxsidexposaperinit = indxsidexpostemp - numbneigaper
-                            indxsideyposaperfinl = indxsideypostemp + numbneigaper + 1
-                            indxsidexposaperfinl = indxsidexpostemp + numbneigaper + 1
-                            indxsideyposbackinit = indxsideypostemp - gdat.numbneigback
-                            indxsidexposbackinit = indxsidexpostemp - gdat.numbneigback
-                            indxsideyposbackfinl = indxsideypostemp + gdat.numbneigback + 1
-                            indxsidexposbackfinl = indxsidexpostemp + gdat.numbneigback + 1
-                            
-                            imagbackmedi = np.median(imagmemo[indxsideyposbackinit:indxsideyposbackfinl, \
-                                                                    indxsidexposbackinit:indxsidexposbackfinl, :], axis=(0, 1))
-                            for t in indxtime:
-                                lcur[t] = np.sum(imagmemo[indxsideyposaperinit:indxsideyposaperfinl, indxsidexposaperinit:indxsidexposaperfinl, t]) - \
-                                                                                                            imagbackmedi[t] * numbpixlaper
-                            if not np.isfinite(lcur).all():
-                                print 'imagbackmedi'
-                                print imagbackmedi
-                                raise Exception('')
-                            
-                            # normalize
-                            meanlcur = np.mean(lcur)
-                            lcur /= meanlcur
-                            #lcurmedi = scipy.signal.medfilt(lcur, 11)
-                            dictpara['mean'][k, l] = meanlcur
-                            
-                            lcurdiff = lcur - lcuravgd
-                            indxtimediff = np.argsort(lcurdiff)[::-1]
-                            for t in indxtimediff:
-                                if t < 0.2 * numbtime or (t >= 0.5 * numbtime and t <= 0.7 * numbtime):
-                                    continue
-                                if lcurdiff[t] > thrsdiff and lcurdiff[t-1] > thrsdiff:
-                                    break
-                            indxtimediffaccp = t
-                            dictpara['diff'][k, l] = lcurdiff[indxtimediffaccp]
-
-                            # acceptance condition
-                            boolgood = False
-                            if dictpara['diff'][k, l] > thrsdiff:
-                            #if dictpara['maxm'][k, l] > thrsmaxm and (lcurtest[indxtimemaxm+1] > thrsmaxm or lcurtest[indxtimemaxm-1] > thrsmaxm):
-                                boolgood = True
-                            
-                            if abs(k - 50) < 4 and abs(l - 50) < 4:
-                                boolgood = True
-                                
-                            if boolgood:# or (abs(k - 53) < 5 and abs(l - 53) < 5):
-                                
-                                indxsideyposaccp.append(k * numbstrd)
-                                indxsidexposaccp.append(l * numbstrd)
+                if strgtype == 'tsne' or strgtype == 'tmpt':
+                    pass
+                else:
+                    indxsideyposaperinit = indxsideypostemp - numbneigaper
+                    indxsidexposaperinit = indxsidexpostemp - numbneigaper
+                    indxsideyposaperfinl = indxsideypostemp + numbneigaper + 1
+                    indxsidexposaperfinl = indxsidexpostemp + numbneigaper + 1
+                    indxsideyposbackinit = indxsideypostemp - gdat.numbneigback
+                    indxsidexposbackinit = indxsidexpostemp - gdat.numbneigback
+                    indxsideyposbackfinl = indxsideypostemp + gdat.numbneigback + 1
+                    indxsidexposbackfinl = indxsidexpostemp + gdat.numbneigback + 1
                     
-                                # plot
-                                figr, axis = plt.subplots(figsize=(12, 6))
-                                axis.plot(time, lcur, ls='', marker='o', markersize=3, label='Raw')
-                                #axis.plot(time, lcurmedi, ls='', marker='o', markersize=3, label='Median')
-                                #axis.plot(time, lcurtest, ls='', marker='o', markersize=3, label='Cleaned')
-                                axis.plot(time, lcurdiff + 1., ls='', marker='o', markersize=3, label='Diff')
-                                
-                                axis.set_xlabel('Time [days]')
-                                axis.set_ylabel('Relative Flux')
-                                axis.legend()
-                                
-                                axis.axhline(thrsdiff + 1., ls='--', alpha=0.3, color='gray')
-                                axis.axvline(time[int(0.2*numbtime)], ls='--', alpha=0.3, color='red')
-                                axis.axvline(time[int(0.5*numbtime)], ls='--', alpha=0.3, color='red')
-                                axis.axvline(time[int(0.7*numbtime)], ls='--', alpha=0.3, color='red')
-                                
-                                posisili = np.empty((1, 2))
-                                posisili[0, 0] = indxsideyposdatainit + k
-                                posisili[0, 1] = indxsidexposdatainit + l
-                                
-                                titl = 'Diff: %g' % (dictpara['diff'][k, l])
-                                if gdat.datatype == 'obsd':
-                                    if pathfile is None:
-                                        posiskyy = listobjtwcss[t].all_pix2world(posisili, 0)
-                                    else:
-                                        posiskyy = listobjtwcss.all_pix2world(posisili, 0)
-                                    rasc = posiskyy[:, 0]
-                                    decl = posiskyy[:, 1]
-                                    strgsrch = '%g %g' % (rasc, decl)
-                                    titl += 'k = %d, l = %d' % (k, l)
-                                    #catalogData = Catalogs.query_region(strgsrch, radius='0.1m', catalog = "TIC")
-                                    #if len(catalogData) > 0:
-                                    #    tici = int(catalogData[0]['ID'])
-                                    #    titl += ', TIC %d' % tici
-                                
-                                    #axis.axvspan(minmtime, 1328, alpha=0.5, color='red')
-                                    #axis.axvspan(1338, 1342, alpha=0.5, color='red')
-                                    #axis.axvspan(1345, 1350, alpha=0.5, color='red')
-                                
-                                axis.set_title(titl)
-                                plt.tight_layout()
-                                path = gdat.pathdata + 'lcur_%s_%04d_%04d.pdf' % (gdat.strgcntp, k, l)
-                                print 'Writing to %s...' % path
-                                plt.savefig(path)
-                                plt.close()
+                    imagbackmedi = np.median(cntpmemo[indxsideyposbackinit:indxsideyposbackfinl, \
+                                                            indxsidexposbackinit:indxsidexposbackfinl, :], axis=(0, 1))
+                    for t in gdat.indxtime:
+                        lcur[t] = np.sum(cntpmemo[indxsideyposaperinit:indxsideyposaperfinl, indxsidexposaperinit:indxsidexposaperfinl, t]) - \
+                                                                                                    imagbackmedi[t] * numbpixlaper
+                    if not np.isfinite(lcur).all():
+                        print 'imagbackmedi'
+                        print imagbackmedi
+                        raise Exception('')
+                    
+                    # normalize
+                    meanlcur = np.mean(lcur)
+                    lcur /= meanlcur
+                    #lcurmedi = scipy.signal.medfilt(lcur, 11)
+                    dictpara['mean'][k, l] = meanlcur
+                    
+                    lcurdiff = lcur - lcuravgd
+                    gdat.indxtimediff = np.argsort(lcurdiff)[::-1]
+                    for t in gdat.indxtimediff:
+                        if t < 0.2 * gdat.numbtime or (t >= 0.5 * gdat.numbtime and t <= 0.7 * gdat.numbtime):
+                            continue
+                        if lcurdiff[t] > thrsdiff and lcurdiff[t-1] > thrsdiff:
+                            break
+                    gdat.indxtimediffaccp = t
+                    dictpara['diff'][k, l] = lcurdiff[gdat.indxtimediffaccp]
+
+                    # acceptance condition
+                    boolgood = False
+                    if dictpara['diff'][k, l] > thrsdiff:
+                    #if dictpara['maxm'][k, l] > thrsmaxm and (lcurtest[gdat.indxtimemaxm+1] > thrsmaxm or lcurtest[gdat.indxtimemaxm-1] > thrsmaxm):
+                        boolgood = True
+                    
+                    if abs(k - 50) < 4 and abs(l - 50) < 4:
+                        boolgood = True
                         
-                            if verbtype > 1:
-                                print
+                    if boolgood:# or (abs(k - 53) < 5 and abs(l - 53) < 5):
                         
-                        cntr += 1
-                        l += 1
-                    k += 1
-    
-            lcurflat = lcurarry.reshape((numbsidesrch**2, numbtime, numbsidecorr, numbsidecorr))
-            lcurflat = lcurflat.reshape((numbsidesrch**2, numbtime * numbsidecorr**2))
-            
+                        indxsideyposaccp.append(k * numbstrd)
+                        indxsidexposaccp.append(l * numbstrd)
+                
+                        # plot
+                        figr, axis = plt.subplots(figsize=(12, 6))
+                        axis.plot(time, lcur, ls='', marker='o', markersize=3, label='Raw')
+                        #axis.plot(time, lcurmedi, ls='', marker='o', markersize=3, label='Median')
+                        #axis.plot(time, lcurtest, ls='', marker='o', markersize=3, label='Cleaned')
+                        axis.plot(time, lcurdiff + 1., ls='', marker='o', markersize=3, label='Diff')
+                        
+                        axis.set_xlabel('Time [days]')
+                        axis.set_ylabel('Relative Flux')
+                        axis.legend()
+                        
+                        axis.axhline(thrsdiff + 1., ls='--', alpha=0.3, color='gray')
+                        axis.axvline(time[int(0.2*gdat.numbtime)], ls='--', alpha=0.3, color='red')
+                        axis.axvline(time[int(0.5*gdat.numbtime)], ls='--', alpha=0.3, color='red')
+                        axis.axvline(time[int(0.7*gdat.numbtime)], ls='--', alpha=0.3, color='red')
+                        
+                        posisili = np.empty((1, 2))
+                        posisili[0, 0] = indxsideyposdatainit + k
+                        posisili[0, 1] = indxsidexposdatainit + l
+                        
+                        titl = 'Diff: %g' % (dictpara['diff'][k, l])
+                        if gdat.datatype == 'obsd':
+                            if pathfile is None:
+                                posiskyy = listobjtwcss[t].all_pix2world(posisili, 0)
+                            else:
+                                posiskyy = listobjtwcss.all_pix2world(posisili, 0)
+                            rasc = posiskyy[:, 0]
+                            decl = posiskyy[:, 1]
+                            strgsrch = '%g %g' % (rasc, decl)
+                            titl += 'k = %d, l = %d' % (k, l)
+                            #catalogData = Catalogs.query_region(strgsrch, radius='0.1m', catalog = "TIC")
+                            #if len(catalogData) > 0:
+                            #    tici = int(catalogData[0]['ID'])
+                            #    titl += ', TIC %d' % tici
+                        
+                            #axis.axvspan(1345, 1350, alpha=0.5, color='red')
+                        
+                        axis.set_title(titl)
+                        plt.tight_layout()
+                        path = gdat.pathdata + 'lcur_%s_%04d_%04d.pdf' % (gdat.strgcntp, k, l)
+                        print 'Writing to %s...' % path
+                        plt.savefig(path)
+                        plt.close()
+                
             n_neighbors = 30
            
             X = lcurflat
@@ -765,7 +815,7 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
             listscor = []
             listlablmodl = []
             
-            numbtimeplotscat = min(6, numbtime)
+            numbtimeplotscat = min(6, gdat.numbtime)
             limt = [np.amin(X), np.amax(X)]
             
             c = 0
@@ -794,7 +844,7 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
                 indxdataposi = np.where(lablmodl == 1)[0]
                 indxdatanega = np.setdiff1d(indxdata, indxdataposi)
                 numbposi = indxdataposi.size
-                gdat.numbpositext = min(20, numbposi)
+                gdat.numbpositext = min(200, numbposi)
 
                 indxsideyposaccp = indxdataposi // numbsidememo
                 indxsidexposaccp = indxdataposi % numbsidememo
@@ -807,35 +857,46 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
                 gdat.indxdatascorsort = np.argsort(listscor[c])
                 
                 # make plots
-                ## animation of image frames 
-                vmin = np.amin(imagmemo)
-                vmax = np.amax(imagmemo)
-                numbtimeplot = min(10, numbtime)
-                indxtimeplot = np.linspace(0., numbtime - 1., numbtimeplot).astype(int)
-                for t in indxtimeplot:
-                    figr, axis = plt.subplots(figsize=(12, 6))
-                    cntptemp = imagmemo[:, :, t]
-                    if boolplotsinc:
-                        cntptemp = np.arcsinh(cntptemp)
-                        vmintemp = np.arcsinh(vmin)
-                        vmaxtemp = np.arcsinh(vmax)
-                    objtimag = axis.imshow(cntptemp, interpolation='nearest', vmin=vmintemp, vmax=vmaxtemp, cmap='Greys_r')
-                    plot_catl(gdat, axis)
-                    plt.colorbar(objtimag)
-                    plt.tight_layout()
-                    path = gdat.pathdata + 'cntp_%s_%05d.pdf' % (gdat.strgcntp, t)
-                    print 'Writing to %s...' % path
-                    plt.savefig(path)
-                    plt.close()
-                os.system('convert %scntp_%s_*.pdf %scntp_%s.gif' % (gdat.pathdata, gdat.strgcntp, gdat.pathdata, gdat.strgcntp))
-                ### delete the frame plots
-                path = gdat.pathdata + 'cntp_%s_*.pdf' % (gdat.strgcntp)
-                os.system('rm %s' % path)
+                ## animation of regions
+                plot_anim(gdat, cntpmemo, 'cntpmemo')
+            
+                ## animation of targets
+                numbsideedgeplot = 40
+                for n in range(20):
+                    
+                    indxsideyposoffs = gdat.indxsideyposdataflat[gdat.indxdatascorsort[n]] - numbsideedgeplot / 2 + gdat.numbsideedge
+                    indxsidexposoffs = gdat.indxsidexposdataflat[gdat.indxdatascorsort[n]] - numbsideedgeplot / 2 + gdat.numbsideedge
+                    indxyposmemoinit = max(indxsideyposoffs, 0)
+                    indxyposmemofinl = min(indxyposmemoinit + numbsideedgeplot, numbsidememo)
+                    indxxposmemoinit = max(indxsidexposoffs, 0)
+                    indxxposmemofinl = min(indxxposmemoinit + numbsideedgeplot, numbsidememo)
+                    indxypostarginit = max(indxsideyposoffs, 0) - indxsideyposoffs
+                    indxypostargfinl = numbsideedgeplot + min(indxyposmemoinit + numbsideedgeplot, numbsidememo) - indxyposmemoinit - numbsideedgeplot
+                    indxxpostarginit = max(indxsidexposoffs, 0) - indxsidexposoffs
+                    indxxpostargfinl = numbsideedgeplot + min(indxxposmemoinit + numbsideedgeplot, numbsidememo) - indxxposmemoinit - numbsideedgeplot
+                    
+                    cntptarg = np.zeros((numbsideedgeplot, numbsideedgeplot))
+                    print 'indxypostarginit'
+                    print indxypostarginit
+                    print 'indxypostargfinl'
+                    print indxypostargfinl
+                    print 'indxxpostarginit'
+                    print indxxpostarginit
+                    print 'indxxpostargfinl'
+                    print indxxpostargfinl
+                    print 'indxsideyposoffs'
+                    print indxsideyposoffs
+                    print 'indxsidexposoffs'
+                    print indxsidexposoffs
+                    print 
+                    cntptarg[indxypostarginit:indxypostargfinl, indxxpostarginit:indxxpostargfinl] = \
+                                                cntpmemo[indxyposmemoinit:indxyposmemofinl, indxxposmemoinit:indxxposmemofinl, :]
+                    plot_anim(gdat, cntptarg, 'cntpmemo_posi%04d' % n, indxsideyposoffs=indxsideyposoffs, indxsidexposoffs=indxsidexposoffs)
             
                 ## labeled marginal distributions
                 figr, axis = plt.subplots(numbtimeplotscat - 1, numbtimeplotscat - 1, figsize=(10, 10))
-                for t in indxtime[:numbtimeplotscat-1]:
-                    for tt in indxtime[:numbtimeplotscat-1]:
+                for t in gdat.indxtime[:numbtimeplotscat-1]:
+                    for tt in gdat.indxtime[:numbtimeplotscat-1]:
                         if t < tt:
                             axis[t][tt].axis('off')
                             continue
@@ -850,15 +911,7 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
                 plt.close()
                 
                 ## median image with the labels
-                figr, axis = plt.subplots(figsize=(12, 6))
-                objtimag = axis.imshow(np.arcsinh(imagmemomedi), interpolation='nearest', cmap='Greys_r')
-                plt.colorbar(objtimag)
-                plot_catl(gdat, axis)
-                plt.tight_layout()
-                path = gdat.pathdata + 'cntpmedi_%s_%04d.pdf' % (gdat.strgcntp, c)
-                print 'Writing to %s...' % path
-                plt.savefig(path)
-                plt.close()
+                plot_imag(gdat, cntpmemotimemedi, 'cntpmemotimemedi', strgtitl='Median')
 
                 # plot data with colors based on predicted class
                 figr, axis = plt.subplots(10, 4)
@@ -881,13 +934,13 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
                                 colr = 'b'
                             else:
                                 colr = 'r'
-                        axis[a][b].plot(gdat.time, X[p, :].reshape((numbtime, numbsidecorr, numbsidecorr))[:, gdat.offscorr, gdat.offscorr], \
+                        axis[a][b].plot(gdat.time, X[p, :].reshape((gdat.numbtime, numbsidecorr, numbsidecorr))[:, gdat.offscorr, gdat.offscorr], \
                                                                                             color=colr, alpha=0.1, ls='', marker='o', markersize=3)
                         if a != 9:
                             axis[a][b].set_xticks([])
                         if b != 0:
                             axis[a][b].set_yticks([])
-                path = gdat.pathdata + 'datapred_%s_%04d.pdf' % (gdat.strgcntp, c)
+                path = gdat.pathdata + 'lcurpred_%s_%04d.pdf' % (gdat.strgcntp, c)
                 plt.savefig(path)
                 plt.close()
 
@@ -916,9 +969,9 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
                         
                         if not isinstance(indx, int):
                             indx = indx[0]
-                        axis[k][l].plot(gdat.time, X[indx, :].reshape((numbtime, numbsidecorr, numbsidecorr))[:, gdat.offscorr, gdat.offscorr], \
+                        axis[k][l].plot(gdat.time, X[indx, :].reshape((gdat.numbtime, numbsidecorr, numbsidecorr))[:, gdat.offscorr, gdat.offscorr], \
                                                                                                 color='black', ls='', marker='o', markersize=3)
-                path = gdat.pathdata + 'datasort_%s_%04d.pdf' % (gdat.strgcntp, c)
+                path = gdat.pathdata + 'lcursort_%s_%04d.pdf' % (gdat.strgcntp, c)
                 plt.savefig(path)
                 plt.close()
     
@@ -1278,7 +1331,7 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
             #indxsidexposaccp = np.array(indxsidexposaccp)
             #indxsideyposaccp = np.array(indxsideyposaccp)
             #figr, axis = plt.subplots(figsize=(12, 6))
-            #objtimag = axis.imshow(np.std(imagmemo, axis=2), interpolation='nearest', cmap='Reds')
+            #objtimag = axis.imshow(np.std(cntpmemo, axis=2), interpolation='nearest', cmap='Reds')
             #
             #if gdat.datatype == 'mock':
             #    for n in indxsupn:
@@ -1287,13 +1340,6 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
             #for indxsideyposaccptemp, indxsidexposaccptemp in zip(indxsideyposaccp, indxsidexposaccp):
             #    axis.scatter(indxsidexposaccptemp, indxsideyposaccptemp, s=50, marker='x', color='b')
 
-            #plt.colorbar(objtimag)
-            #plt.tight_layout()
-            #path = gdat.pathdata + 'cntpstdvfinl_%s.pdf' % gdat.strgcntp
-            #print 'Writing to %s...' % path
-            #plt.savefig(path)
-            #plt.close()
-            #
             #for strgvarb in ['diff']:
             #    figr, axis = plt.subplots(figsize=(12, 6))
             #    #if strgvarb == 'diff':
@@ -1314,15 +1360,19 @@ def work(isec=None, icam=None, iccd=None, pathfile=None, rasctarg=None, decltarg
             #    plt.close()
     
 
-def plot_catl(gdat, axis):
+def plot_catl(gdat, axis, indxsideyposoffs=0, indxsidexposoffs=0):
 
-    for k in range(gdat.numbpositext):
-        axis.text(gdat.indxsideyposdataflat[gdat.indxdatascorsort[k]] + gdat.numbsideedge, \
-                  gdat.indxsidexposdataflat[gdat.indxdatascorsort[k]] + gdat.numbsideedge, '%d' % k, size=7, color='b')
-    
+    try:
+        for k in range(gdat.numbpositext):
+            axis.text(gdat.indxsideyposdataflat[gdat.indxdatascorsort[k]] - indxsideyposoffs + gdat.numbsideedge, \
+                      gdat.indxsidexposdataflat[gdat.indxdatascorsort[k]] - indxsidexposoffs + gdat.numbsideedge, '%d' % k, size=7, color='b', alpha=0.5)
+    except:
+        pass
+
     if gdat.datatype == 'mock':
         for k in gdat.indxsoursupn:
-            axis.text(np.mean(gdat.trueypos[:, k]), np.mean(gdat.truexpos[:, k]), '*', size=7, color='g')
+            axis.text(np.mean(gdat.trueypos[:, k]) - indxsideyposoffs, \
+                      np.mean(gdat.truexpos[:, k]) - indxsidexposoffs, '*', alpha=0.5, size=15, color='g', ha='center', va='center')
 
 
 def cnfg_tici():
@@ -1371,7 +1421,7 @@ def cnfg_defa():
 def cnfg_sect():
     
     for isec in range(9, 10):
-        for icam in range(1, 2):
+        for icam in range(4, 5):
             for iccd in range(2, 3):
                 work(isec, icam, iccd)
 
