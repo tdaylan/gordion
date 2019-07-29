@@ -1,2 +1,2 @@
-# tesstran
-Pipeline to find transients in the TESS data
+# Introduction
+TESS Pixel-level Extractor for Transients (TPET)
