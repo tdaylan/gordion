@@ -618,7 +618,8 @@ def init( \
                     figr, axis = plt.subplots()
                     axis.plot(gdat.time, quat[0, :], color='black', ls='', marker='o', markersize=3, label='q_x')
                     axis.plot(gdat.time, quat[1, :], color='black', ls='', marker='o', markersize=3, label='q_y')
-                    axis.plot(gdat.time, np.sqrt(quat[0, :]**2 + quat[1, :]**2), color='black', ls='', marker='o', markersize=3, label=r'$\sqrt{q_x^2 + q_y^2}$')
+                    axis.plot(gdat.time, np.sqrt(quat[0, :]**2 + quat[1, :]**2), \
+                                        color='black', ls='', marker='o', markersize=3, label=r'$\sqrt{q_x^2 + q_y^2}$')
                     axis.set_xlabel('Time [BJD]')
                     axis.set_ylabel('Quaternion [px]')
                     path = gdat.pathdata + 'quat_%s.pdf' % (gdat.strgcntp)
@@ -1429,6 +1430,45 @@ def init( \
                 #    plt.savefig(path)
                 #    plt.close()
     
+
+def retr_timeexec():
+    # input PCAT speed per 100x100 pixel region
+    timeregi = 30. # [min]
+    
+    # number of time frames in each region
+    numbtser = 13.7 * 4 * 24 * 60. / 30.
+    
+    timeregitser = numbtser * timeregi / 60. / 24 # [day]
+    timeffim = 16.8e6 / 1e4 * timeregi # [day]
+    timesegm = 4. * timeffim / 7. # [week]
+    timefsky = 26 * timesegm / 7. # [week]
+    
+    print 'Full frame, full sky: %d weeks per 1000 cores' % (timefsky / 1000.) 
+
+
+def plot_peri(): 
+    ## plot Lomb Scargle periodogram
+    figr, axis = plt.subplots(figsize=(12, 4))
+    axis.set_ylabel('Power')
+    axis.set_xlabel('Frequency [1/day]')
+    arryfreq = np.linspace(0.1, 10., 2000)
+    for a in range(2):
+        indxtemp = np.arange(arryseco.shape[0])
+        if a == 0:
+            colr = 'g'
+        if a == 1:
+            colr = 'r'
+            for k in range(1400, 1500):
+                indxtemp = np.setdiff1d(indxtemp, np.where(abs(arryseco[:, 0] - k * peri - epoc) < dura * 2)[0])
+        ydat = scipy.signal.lombscargle(arryseco[indxtemp, 0], arryseco[indxtemp, 1], arryfreq)
+        axis.plot(arryfreq * 2. * np.pi, ydat, ls='', marker='o', markersize=5, alpha=0.3, color=colr)
+    for a in range(4):
+        axis.axvline(a / peri, ls='--', color='black')
+    plt.tight_layout()
+    path = pathimag + 'lspd_%s.pdf' % (strgmask)
+    print 'Writing to %s...' % path
+    plt.savefig(path)
+    plt.close()
 
 def plot_catl(gdat, axis, indxsideyposoffs=0, indxsidexposoffs=0):
 
